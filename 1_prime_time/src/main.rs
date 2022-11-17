@@ -10,7 +10,7 @@ use std::thread;
 #[derive(Serialize, Deserialize, Debug)]
 struct Request {
     method: String,
-    number: f32,
+    number: f64,
 }
 
 #[derive(Serialize, Debug)]
@@ -154,6 +154,8 @@ mod tests {
         for prime in vec![2, 23693849, 41973671, 71688731].iter() {
             assert!(is_prime(*prime), "{} was not prime", *prime)
         }
+        assert!(is_prime(25896203));
+        assert!(is_prime(32407513))
     }
 
     #[test]
@@ -164,5 +166,18 @@ mod tests {
         let g = 3.0_f32;
         assert!(g.fract() == 0.0);
         assert!(is_prime(g as i32));
+    }
+
+    #[test]
+    fn test_float_parsing() {
+        let line = "{\"number\":32407513,\"method\":\"isPrime\"}";
+        let request: Request = serde_json::from_str(&line).unwrap();
+
+        assert!(request.number == 32407513.0);
+        assert!(is_prime(request.number as i32), "{} was not prime", request.number as i32);
+
+        assert!(32407513.0 as i32 == 32407513);
+        assert!(request.number == 32407513.0);
+        assert!(request.number as i32 == 32407513, "{} did not equal 32407513", request.number)
     }
 }
