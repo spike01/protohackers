@@ -24,15 +24,43 @@ struct ErrorResponse {
     reason: String,
 }
 
+trait ResponseJson {
+    fn write_to_stream(&self, mut stream: &TcpStream, ip: IpAddr, line: &String, conn: usize)
+    where
+        Self: Serialize,
+    {
+        let bytes_written = stream
+            .write(ResponseJson::serialize(self).as_bytes())
+            .expect("unable to write to stream");
+        println!(
+            "ip={} bytes_written={} line={} error=invalid_request conn={}",
+            ip, bytes_written, line, conn
+        );
+    }
+
+    fn serialize(&self) -> String
+    where
+        Self: Serialize,
+    {
+        format!(
+            "{}\n",
+            serde_json::to_string(&self).expect("could not serialize to JSON")
+        )
+    }
+}
+
+impl ResponseJson for Response {}
+impl ResponseJson for ErrorResponse {}
+
 const METHOD: &str = "isPrime";
 
 fn main() -> std::io::Result<()> {
     let listener = TcpListener::bind("0.0.0.0:8080").expect("unable to bind to port");
 
-    for stream in listener.incoming() {
+    for (i, stream) in listener.incoming().enumerate() {
         match stream {
             Ok(stream) => {
-                thread::spawn(move || handle_connection(stream));
+                thread::spawn(move || handle_connection(stream, i));
             }
             Err(err) => println!("{}", err),
         }
@@ -40,10 +68,11 @@ fn main() -> std::io::Result<()> {
     Ok(())
 }
 
-fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
+fn handle_connection(stream: TcpStream, conn: usize) -> std::io::Result<()> {
     let reader = BufReader::new(stream.try_clone()?);
+    let ip = ip(&stream);
 
-    println!("Opened stream ip={}", ip(&stream));
+    println!("Opened stream ip={} conn={}", ip, conn);
 
     for line in reader.lines() {
         // TODO: look at crates "log" and "tracing"
@@ -56,15 +85,7 @@ fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
                     error: "invalid_request".to_string(),
                     reason: err.to_string(),
                 };
-                let bytes_written = stream
-                    .write(serialize_error(&error).as_bytes())
-                    .expect("unable to write to stream");
-                println!(
-                    "ip={} bytes_written={} line={} error=invalid_request",
-                    ip(&stream),
-                    bytes_written,
-                    line
-                );
+                error.write_to_stream(&stream, ip, &line, conn);
                 break;
             }
         };
@@ -74,36 +95,20 @@ fn handle_connection(mut stream: TcpStream) -> std::io::Result<()> {
                 error: "invalid".to_string(),
                 reason: "invalid method".to_string(),
             };
-            let bytes_written = stream
-                .write(serialize_error(&error).as_bytes())
-                .expect("unable to write to stream");
-            println!(
-                "ip={} bytes_written={} line={} error=invalid_method",
-                ip(&stream),
-                bytes_written,
-                line
-            );
+            error.write_to_stream(&stream, ip, &line, conn);
             break;
         };
 
         let prime = is_prime(request.number);
         let response = Response {
-            method: "isPrime".to_string(),
+            method: METHOD.to_string(),
             prime,
         };
         // TODO - look at serde_json:: - Pass stream into serde_json? Look at docs
-        let bytes_written = stream
-            .write(serialize(&response).as_bytes())
-            .expect("unable to write to stream");
-        println!(
-            "ip={} bytes_written={} line={} prime={}",
-            ip(&stream),
-            bytes_written,
-            line,
-            prime
-        );
+        response.write_to_stream(&stream, ip, &line, conn);
     }
 
+    println!("Closing stream ip={} conn={}", ip, conn);
     stream.shutdown(Shutdown::Both)
 }
 
@@ -118,20 +123,8 @@ fn is_prime(n: i32) -> bool {
     if n <= 0 || n == 1 {
         return false;
     }
-    (2..n).all(|a| n % a != 0)
-}
-
-// TODO: make generic over Response|ErrorResponse, extract out write_response()
-fn serialize(response: &Response) -> String {
-    format!(
-        "{}\n",
-        serde_json::to_string(&response).expect("could not serialize JSON")
-    )
-}
-
-fn serialize_error(response: &ErrorResponse) -> String {
-    format!(
-        "{}\n",
-        serde_json::to_string(&response).expect("could not serialize JSON")
-    )
+    if n != 2 && n % 2 == 0 {
+        return false;
+    }
+    (2..n / 2).all(|a| n % a != 0)
 }
