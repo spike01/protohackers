@@ -1,3 +1,4 @@
+use primal::is_prime as primal_is_prime;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr};
@@ -122,11 +123,27 @@ fn ip(stream: &TcpStream) -> IpAddr {
 }
 
 fn is_prime(n: i32) -> bool {
-    if n <= 0 || n == 1 {
+    if n <= 0 {
         return false;
     }
-    if n != 2 && n % 2 == 0 {
-        return false;
+    primal_is_prime(n.try_into().unwrap())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn test_not_prime() {
+        for prime in vec![-1, 0, 1, 4, 35934601, 64404236, 9153233].iter() {
+            assert!(!is_prime(*prime), "{} was prime", *prime)
+        }
     }
-    (2..n / 2).all(|a| n % a != 0)
+
+    #[test]
+    fn test_prime() {
+        for prime in vec![2, 23693849, 41973671, 71688731].iter() {
+            assert!(is_prime(*prime), "{} was not prime", *prime)
+        }
+    }
 }
