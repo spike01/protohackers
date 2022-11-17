@@ -10,7 +10,7 @@ use std::thread;
 #[derive(Serialize, Deserialize, Debug)]
 struct Request {
     method: String,
-    number: i32,
+    number: f32,
 }
 
 #[derive(Serialize, Debug)]
@@ -101,13 +101,22 @@ fn handle_connection(stream: TcpStream, conn: usize) -> std::io::Result<()> {
             break;
         };
 
-        let prime = is_prime(request.number);
-        let response = Response {
-            method: METHOD.to_string(),
-            prime,
-        };
-        // TODO - look at serde_json:: - Pass stream into serde_json? Look at docs
-        response.write_to_stream(&stream, ip, &line, conn);
+        if request.number.fract() != 0.0 {
+            let response = Response {
+                method: METHOD.to_string(),
+                prime: false,
+            };
+            response.write_to_stream(&stream, ip, &line, conn);
+        } else {
+            let number = request.number as i32;
+            let prime = is_prime(number);
+            let response = Response {
+                method: METHOD.to_string(),
+                prime,
+            };
+            // TODO - look at serde_json:: - Pass stream into serde_json? Look at docs
+            response.write_to_stream(&stream, ip, &line, conn);
+        }
     }
 
     println!("Closing stream ip={} conn={}", ip, conn);
@@ -145,5 +154,15 @@ mod tests {
         for prime in vec![2, 23693849, 41973671, 71688731].iter() {
             assert!(is_prime(*prime), "{} was not prime", *prime)
         }
+    }
+
+    #[test]
+    fn test_casting() {
+        let f = 3.7_f32;
+        assert!(!(f.fract() == 0.0));
+
+        let g = 3.0_f32;
+        assert!(g.fract() == 0.0);
+        assert!(is_prime(g as i32));
     }
 }
