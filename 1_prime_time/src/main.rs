@@ -29,12 +29,13 @@ trait ResponseJson {
     where
         Self: Serialize,
     {
+        let response = ResponseJson::serialize(self);
         let bytes_written = stream
-            .write(ResponseJson::serialize(self).as_bytes())
+            .write(response.as_bytes())
             .expect("unable to write to stream");
         println!(
-            "ip={} bytes_written={} line={} error=invalid_request conn={}",
-            ip, bytes_written, line, conn
+            "ip={} bytes_written={} conn={} line={} response={}",
+            ip, bytes_written, conn, line, response
         );
     }
 
@@ -93,7 +94,7 @@ fn handle_connection(stream: TcpStream, conn: usize) -> std::io::Result<()> {
         if request.method != METHOD {
             let error = ErrorResponse {
                 error: "invalid".to_string(),
-                reason: "invalid method".to_string(),
+                reason: "invalid_method".to_string(),
             };
             error.write_to_stream(&stream, ip, &line, conn);
             break;
@@ -115,6 +116,7 @@ fn handle_connection(stream: TcpStream, conn: usize) -> std::io::Result<()> {
 fn ip(stream: &TcpStream) -> IpAddr {
     match stream.try_clone() {
         Ok(stream) => stream.local_addr().expect("could not get local addr").ip(),
+        // "default" - would not make sense when deployed
         Err(_) => IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
     }
 }
