@@ -164,7 +164,7 @@ fn sanitize_request(line: &str) -> Result<Request, ErrorResponse> {
         });
     }
 
-    if !chars.all(|c| c.is_numeric()) {
+    if !chars.all(|c| c.is_numeric() || c == '.') {
         return Err(ErrorResponse {
             error: "invalid".to_string(),
             reason: "not_a_number".to_string(),
