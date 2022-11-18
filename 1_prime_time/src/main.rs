@@ -6,8 +6,13 @@ use std::net::{IpAddr, Ipv4Addr};
 use std::net::{Shutdown, TcpListener, TcpStream};
 use std::thread;
 
+const METHOD: &str = "isPrime";
+const INVALID_REQUEST: &str = "invalid_request";
+
 // TODO: check out blessed.rs
 
+// Parse JSON numbers as RawValue so we can pass them as strings to isPrime() - some weird
+// conversion happens in serde for big numbers and floats
 #[derive(Serialize, Deserialize, Debug)]
 struct Request<'a> {
     method: String,
@@ -27,6 +32,8 @@ struct ErrorResponse {
     reason: String,
 }
 
+// This abstraction kinda sucks, was way of passing around a line, its stream and connection
+// info - poorly named
 struct StreamedLine<'a> {
     line: &'a String,
     stream: &'a TcpStream,
@@ -66,8 +73,6 @@ trait ResponseJson {
 
 impl ResponseJson for Response {}
 impl ResponseJson for ErrorResponse {}
-
-const METHOD: &str = "isPrime";
 
 fn main() -> std::io::Result<()> {
     let listener = TcpListener::bind("0.0.0.0:8080").expect("unable to bind to port");
@@ -132,7 +137,7 @@ fn sanitize_request(line: &str) -> Result<Request, ErrorResponse> {
         Ok(request) => request,
         Err(err) => {
             return Err(ErrorResponse {
-                error: "invalid_request".to_string(),
+                error: INVALID_REQUEST.to_string(),
                 reason: err.to_string(),
             });
         }
@@ -140,7 +145,7 @@ fn sanitize_request(line: &str) -> Result<Request, ErrorResponse> {
 
     if request.method != METHOD {
         return Err(ErrorResponse {
-            error: "invalid".to_string(),
+            error: INVALID_REQUEST.to_string(),
             reason: "invalid_method".to_string(),
         });
     };
@@ -151,7 +156,7 @@ fn sanitize_request(line: &str) -> Result<Request, ErrorResponse> {
         Some(c) => c,
         None => {
             return Err(ErrorResponse {
-                error: "invalid".to_string(),
+                error: INVALID_REQUEST.to_string(),
                 reason: "empty_field".to_string(),
             });
         }
@@ -159,14 +164,14 @@ fn sanitize_request(line: &str) -> Result<Request, ErrorResponse> {
 
     if !(first_char == '+' || first_char == '-' || first_char.is_numeric()) {
         return Err(ErrorResponse {
-            error: "invalid".to_string(),
+            error: INVALID_REQUEST.to_string(),
             reason: "not_a_number".to_string(),
         });
     }
 
     if !chars.all(|c| c.is_numeric() || c == '.') {
         return Err(ErrorResponse {
-            error: "invalid".to_string(),
+            error: INVALID_REQUEST.to_string(),
             reason: "not_a_number".to_string(),
         });
     }
