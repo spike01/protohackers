@@ -3,14 +3,16 @@ use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr};
 use std::net::{Shutdown, TcpListener, TcpStream};
+use serde_json::value::RawValue;
 use std::thread;
 
 // TODO: check out blessed.rs
 
 #[derive(Serialize, Deserialize, Debug)]
-struct Request {
+struct Request<'a> {
     method: String,
-    number: String,
+    #[serde(borrow)]
+    number: &'a RawValue,
 }
 
 #[derive(Serialize, Debug)]
@@ -117,7 +119,7 @@ fn handle_connection(stream: TcpStream, conn: usize) -> std::io::Result<()> {
             break;
         };
 
-        let prime = is_prime(&request.number);
+        let prime = is_prime(&request.number.to_string());
         let response = Response {
             method: METHOD.to_string(),
             prime,
@@ -161,6 +163,7 @@ mod tests {
         for prime in vec!["2", "23693849", "41973671", "71688731"].iter() {
             assert!(is_prime(*prime), "{} was not prime", *prime)
         }
+
         assert!(is_prime("25896203"));
         assert!(is_prime("32407513"))
     }
@@ -168,6 +171,18 @@ mod tests {
     #[test]
     fn test_big_numbers() {
         let big_number = "2393406893135508689922562474977817653928744432857246008";
+
         assert!(!is_prime(big_number));
+    }
+
+    #[test]
+    fn test_parse_json_number_to_string() {
+       let big_number = "2393406893135508689922562474977817653928744432857246008";
+       let big_num_json = r#"{"number":2393406893135508689922562474977817653928744432857246008,"method":"isPrime"}"#;
+
+       let request: Request = serde_json::from_str(big_num_json).unwrap();
+
+       assert_eq!(request.number.to_string(), big_number);
+
     }
 }
