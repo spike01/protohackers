@@ -177,6 +177,9 @@ fn is_prime(n: &str) -> bool {
     if n.starts_with('-') {
         return false;
     }
+    if n.contains('.') {
+        return false;
+    }
     other_is_prime(n)
 }
 
@@ -206,6 +209,13 @@ mod tests {
         let big_number = "2393406893135508689922562474977817653928744432857246008";
 
         assert!(!is_prime(big_number));
+    }
+
+    #[test]
+    fn test_decimal() {
+        let decimal = "123.345";
+
+        assert!(!is_prime(decimal));
     }
 
     #[test]
