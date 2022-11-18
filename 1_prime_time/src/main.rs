@@ -1,9 +1,9 @@
 use is_prime::is_prime as other_is_prime;
 use serde::{Deserialize, Serialize};
+use serde_json::value::RawValue;
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr};
 use std::net::{Shutdown, TcpListener, TcpStream};
-use serde_json::value::RawValue;
 use std::thread;
 
 // TODO: check out blessed.rs
@@ -44,6 +44,7 @@ trait ResponseJson {
             .stream
             .write(response.as_bytes())
             .expect("unable to write to stream");
+        // TODO: look at crates "log" and "tracing" instead of println!
         println!(
             "ip={} bytes_written={} conn={} line={} response={}",
             sl.ip, bytes_written, sl.conn, sl.line, response
@@ -89,7 +90,6 @@ fn handle_connection(stream: TcpStream, conn: usize) -> std::io::Result<()> {
     println!("Opened stream ip={} conn={}", ip, conn);
 
     for line in reader.lines() {
-        // TODO: look at crates "log" and "tracing"
         let line = line?;
         let streamed_line = StreamedLine {
             line: &line,
@@ -98,25 +98,12 @@ fn handle_connection(stream: TcpStream, conn: usize) -> std::io::Result<()> {
             conn,
         };
 
-        let request: Request = match serde_json::from_str(&line) {
+        let request: Request = match sanitize_request(&line) {
             Ok(request) => request,
             Err(err) => {
-                let error = ErrorResponse {
-                    error: "invalid_request".to_string(),
-                    reason: err.to_string(),
-                };
-                error.write_to_stream(streamed_line);
+                err.write_to_stream(streamed_line);
                 break;
             }
-        };
-
-        if request.method != METHOD {
-            let error = ErrorResponse {
-                error: "invalid".to_string(),
-                reason: "invalid_method".to_string(),
-            };
-            error.write_to_stream(streamed_line);
-            break;
         };
 
         let prime = is_prime(&request.number.to_string());
@@ -138,6 +125,52 @@ fn ip(stream: &TcpStream) -> IpAddr {
         // "default" - would not make sense when deployed
         Err(_) => IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)),
     }
+}
+
+fn sanitize_request(line: &str) -> Result<Request, ErrorResponse> {
+    let request: Request = match serde_json::from_str(line) {
+        Ok(request) => request,
+        Err(err) => {
+            return Err(ErrorResponse {
+                error: "invalid_request".to_string(),
+                reason: err.to_string(),
+            });
+        }
+    };
+
+    if request.method != METHOD {
+        return Err(ErrorResponse {
+            error: "invalid".to_string(),
+            reason: "invalid_method".to_string(),
+        });
+    };
+
+    let number_string = &request.number.to_string();
+    let mut chars = number_string.chars();
+    let first_char = match chars.next() {
+        Some(c) => c,
+        None => {
+            return Err(ErrorResponse {
+                error: "invalid".to_string(),
+                reason: "empty_field".to_string(),
+            });
+        }
+    };
+
+    if !(first_char == '+' || first_char == '-' || first_char.is_numeric()) {
+        return Err(ErrorResponse {
+            error: "invalid".to_string(),
+            reason: "not_a_number".to_string(),
+        });
+    }
+
+    if !chars.all(|c| c.is_numeric()) {
+        return Err(ErrorResponse {
+            error: "invalid".to_string(),
+            reason: "not_a_number".to_string(),
+        });
+    }
+    Ok(request)
 }
 
 fn is_prime(n: &str) -> bool {
@@ -177,12 +210,11 @@ mod tests {
 
     #[test]
     fn test_parse_json_number_to_string() {
-       let big_number = "2393406893135508689922562474977817653928744432857246008";
-       let big_num_json = r#"{"number":2393406893135508689922562474977817653928744432857246008,"method":"isPrime"}"#;
+        let big_number = "2393406893135508689922562474977817653928744432857246008";
+        let big_num_json = r#"{"number":2393406893135508689922562474977817653928744432857246008,"method":"isPrime"}"#;
 
-       let request: Request = serde_json::from_str(big_num_json).unwrap();
+        let request: Request = serde_json::from_str(big_num_json).unwrap();
 
-       assert_eq!(request.number.to_string(), big_number);
-
+        assert_eq!(request.number.to_string(), big_number);
     }
 }
