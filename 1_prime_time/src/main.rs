@@ -1,4 +1,4 @@
-use primal::is_prime as primal_is_prime;
+use is_prime::is_prime as other_is_prime;
 use serde::{Deserialize, Serialize};
 use std::io::{BufRead, BufReader, Write};
 use std::net::{IpAddr, Ipv4Addr};
@@ -10,7 +10,7 @@ use std::thread;
 #[derive(Serialize, Deserialize, Debug)]
 struct Request {
     method: String,
-    number: f64,
+    number: String,
 }
 
 #[derive(Serialize, Debug)]
@@ -25,21 +25,31 @@ struct ErrorResponse {
     reason: String,
 }
 
+struct StreamedLine<'a> {
+    line: &'a String,
+    stream: &'a TcpStream,
+    ip: IpAddr,
+    conn: usize,
+}
+
 trait ResponseJson {
-    fn write_to_stream(&self, mut stream: &TcpStream, ip: IpAddr, line: &String, conn: usize)
+    fn write_to_stream(&self, mut sl: StreamedLine)
     where
         Self: Serialize,
     {
         let response = ResponseJson::serialize(self);
-        let bytes_written = stream
+        let bytes_written = sl
+            .stream
             .write(response.as_bytes())
             .expect("unable to write to stream");
         println!(
             "ip={} bytes_written={} conn={} line={} response={}",
-            ip, bytes_written, conn, line, response
+            sl.ip, bytes_written, sl.conn, sl.line, response
         );
     }
 
+    // `serialize` ensures that each response is terminated with a newline - otherwise the
+    // Protohackers checker doesn't recognize responses
     fn serialize(&self) -> String
     where
         Self: Serialize,
@@ -79,6 +89,12 @@ fn handle_connection(stream: TcpStream, conn: usize) -> std::io::Result<()> {
     for line in reader.lines() {
         // TODO: look at crates "log" and "tracing"
         let line = line?;
+        let streamed_line = StreamedLine {
+            line: &line,
+            stream: &stream,
+            ip,
+            conn,
+        };
 
         let request: Request = match serde_json::from_str(&line) {
             Ok(request) => request,
@@ -87,7 +103,7 @@ fn handle_connection(stream: TcpStream, conn: usize) -> std::io::Result<()> {
                     error: "invalid_request".to_string(),
                     reason: err.to_string(),
                 };
-                error.write_to_stream(&stream, ip, &line, conn);
+                error.write_to_stream(streamed_line);
                 break;
             }
         };
@@ -97,26 +113,17 @@ fn handle_connection(stream: TcpStream, conn: usize) -> std::io::Result<()> {
                 error: "invalid".to_string(),
                 reason: "invalid_method".to_string(),
             };
-            error.write_to_stream(&stream, ip, &line, conn);
+            error.write_to_stream(streamed_line);
             break;
         };
 
-        if request.number.fract() != 0.0 {
-            let response = Response {
-                method: METHOD.to_string(),
-                prime: false,
-            };
-            response.write_to_stream(&stream, ip, &line, conn);
-        } else {
-            let number = request.number as i32;
-            let prime = is_prime(number);
-            let response = Response {
-                method: METHOD.to_string(),
-                prime,
-            };
-            // TODO - look at serde_json:: - Pass stream into serde_json? Look at docs
-            response.write_to_stream(&stream, ip, &line, conn);
-        }
+        let prime = is_prime(&request.number);
+        let response = Response {
+            method: METHOD.to_string(),
+            prime,
+        };
+        // TODO - look at serde_json:: - Pass stream into serde_json? Look at docs
+        response.write_to_stream(streamed_line);
     }
 
     println!("Closing stream ip={} conn={}", ip, conn);
@@ -131,11 +138,11 @@ fn ip(stream: &TcpStream) -> IpAddr {
     }
 }
 
-fn is_prime(n: i32) -> bool {
-    if n <= 0 {
+fn is_prime(n: &str) -> bool {
+    if n.starts_with('-') {
         return false;
     }
-    primal_is_prime(n.try_into().unwrap())
+    other_is_prime(n)
 }
 
 #[cfg(test)]
@@ -144,40 +151,23 @@ mod tests {
 
     #[test]
     fn test_not_prime() {
-        for prime in vec![-1, 0, 1, 4, 35934601, 64404236, 9153233].iter() {
+        for prime in vec!["-1", "0", "1", "4", "35934601", "64404236", "9153233"].iter() {
             assert!(!is_prime(*prime), "{} was prime", *prime)
         }
     }
 
     #[test]
     fn test_prime() {
-        for prime in vec![2, 23693849, 41973671, 71688731].iter() {
+        for prime in vec!["2", "23693849", "41973671", "71688731"].iter() {
             assert!(is_prime(*prime), "{} was not prime", *prime)
         }
-        assert!(is_prime(25896203));
-        assert!(is_prime(32407513))
+        assert!(is_prime("25896203"));
+        assert!(is_prime("32407513"))
     }
 
     #[test]
-    fn test_casting() {
-        let f = 3.7_f32;
-        assert!(!(f.fract() == 0.0));
-
-        let g = 3.0_f32;
-        assert!(g.fract() == 0.0);
-        assert!(is_prime(g as i32));
-    }
-
-    #[test]
-    fn test_float_parsing() {
-        let line = "{\"number\":32407513,\"method\":\"isPrime\"}";
-        let request: Request = serde_json::from_str(&line).unwrap();
-
-        assert!(request.number == 32407513.0);
-        assert!(is_prime(request.number as i32), "{} was not prime", request.number as i32);
-
-        assert!(32407513.0 as i32 == 32407513);
-        assert!(request.number == 32407513.0);
-        assert!(request.number as i32 == 32407513, "{} did not equal 32407513", request.number)
+    fn test_big_numbers() {
+        let big_number = "2393406893135508689922562474977817653928744432857246008";
+        assert!(!is_prime(big_number));
     }
 }
